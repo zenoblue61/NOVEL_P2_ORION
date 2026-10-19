@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# 회차 파일을 커밋할 때 tracker/progress.md 와 setting/current_state.md 가 같은 커밋에 있어야 한다.
+# 복선 상태가 바뀌었는데 08_복선장부가 빠졌는지는 사람이 확인한다 (프런트매터에 복선이 있으면 경고).
+# 우회: SKIP_NOVEL_HOOK=1 git commit ...
+set -u
+[ "${SKIP_NOVEL_HOOK:-0}" = "1" ] && exit 0
+
+# Windows(Git Bash)에는 python3 가 없을 수 있다.
+if command -v python3 >/dev/null 2>&1; then PY=python3
+elif command -v python >/dev/null 2>&1; then PY=python
+elif command -v py >/dev/null 2>&1; then PY="py -3"
+else echo "[차단] Python 을 찾지 못했다. python.org 에서 설치 후 PATH 에 추가하라."; exit 1; fi
+export PYTHONUTF8=1
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+eps=$(printf '%s\n' "$staged" | grep -E '^episodes/ep[0-9]{3}\.md$' || true)
+[ -z "$eps" ] && exit 0
+
+fail=0
+for f in tracker/progress.md setting/current_state.md; do
+  if ! printf '%s\n' "$staged" | grep -qx "$f"; then
+    echo "[차단] $f 를 같은 커밋에 넣어라. (회차 커밋 규칙 — CLAUDE.md 6장)"
+    fail=1
+  fi
+done
+
+for e in $eps; do
+  if grep -qE '^(심은복선|회수복선):\s*\[[^]]*F-' "$e" && ! printf '%s\n' "$staged" | grep -qx "setting/08_복선장부.md"; then
+    echo "[경고] $e 에 복선이 있는데 setting/08_복선장부.md 가 커밋에 없다. 상태 갱신을 잊지 않았는지 확인."
+  fi
+  $PY scripts/lint_episode.py "$e" || fail=1
+done
+
+exit $fail
